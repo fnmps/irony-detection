@@ -3,6 +3,8 @@ import re
 import sqlite3
 import numpy as np
 
+from nltk.metrics import edit_distance
+
 class dataset():
     
     def __init__(self):
@@ -102,15 +104,13 @@ class dataset():
         return thricely_labeled_comment_ids
     
     
-    def __grab_comments(self, conn, comment_id_list, verbose=False):
+    def __grab_comments(self, conn, comment_id_list):
         c_text = conn.cursor()
         comments_list = []
         for comment_id in comment_id_list:
             c_text.execute("select text from irony_commentsegment where comment_id='%s' order by segment_index" % comment_id)
             segments = self.__grab_single_element(c_text.fetchall())
             comment = " ".join(segments)
-            if verbose:
-                print comment
             comments_list.append(comment.encode('utf-8').strip())
         return comments_list
     
@@ -126,6 +126,24 @@ class dataset():
     
     def __get_entries(self, a_list, indices):
         return [a_list[i] for i in indices]
+    
+    def comment_similarity(self, comment_id):
+        conn = sqlite3.connect('wallace_dataset.db')
+        c = conn.cursor()
+        rows = c.execute("SELECT redditor, subreddit FROM irony_comment WHERE id=%s" % comment_id)
+        row = rows.fetchone()
+        author = row[0]
+        subreddit = row[1]
+        orig_comment = self.__grab_comments(conn, [comment_id])[0]
+        c= conn.cursor()
+                
+        comments = c.execute("SELECT comment_text FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s'" % (author, subreddit) )
+        result = []
+        for comment in comments:
+            print(edit_distance(orig_comment, comment))
+            
+        return result
+        
     
     def get_past_user_comments(self):        
         conn = sqlite3.connect('wallace_dataset.db')
@@ -162,14 +180,13 @@ class dataset():
     
     
     def get_data(self, affective_norms=False, emoticons=False, punctuation=False, relations=False):
-        conn = sqlite3.connect('wallace_dataset.db')
+        conn = sqlite3.connect('ironate.db')
         
         labelers_of_interest = [2,4,5,6]
         labeler_id_str = self.__make_sql_list_str(labelers_of_interest)
         
         comment_id_list = self.__get_labeled_thrice_comments(conn)
         ironic_comments_ids = self.__get_ironic_comment_ids(conn, labeler_id_str)
-        
         if affective_norms:
             for row in csv.DictReader(open("Ratings_Warriner_et_al.csv")): 
                 self.affective[ row["Word"].lower() ] = np.array( [ float( row["V.Mean.Sum"] ) , float( row["A.Mean.Sum"] ) , float( row["D.Mean.Sum"] ) ] )

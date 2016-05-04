@@ -13,6 +13,7 @@ from keras.preprocessing.text import Tokenizer
 import keras.preprocessing.text
 from sklearn import preprocessing
 from sklearn.cross_validation import KFold
+from sklearn.feature_extraction.text import TfidfVectorizer
 import sklearn.metrics
 import theano.sandbox.cuda
 
@@ -93,6 +94,11 @@ print ("Classes that are considered in the problem : " + repr( le.classes_ ))
 theano.sandbox.cuda.use("gpu0")
 print ("Method = Stack of two LSTMs")
 np.random.seed(0)
+
+# vectorizer = TfidfVectorizer(ngram_range=(1,2), binary=True, stop_words="english", max_features=max_features)
+# X = vectorizer.fit_transform([x[0] for x in data ])
+# y = [x[1] for x in data ]
+
 X = np.vstack( (train_sequences,test_sequences) )
 y = np.hstack( (train_labels,  test_labels) )
 predictions = []
@@ -152,8 +158,8 @@ for train, test in kf:
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , predictions ))
- 
- 
+  
+  
 print ("Method = CNN from the paper 'Convolutional Neural Networks for Sentence Classification'")
 np.random.seed(0)
 nb_filter = embeddings_dim
@@ -188,8 +194,8 @@ for train, test in kf:
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , predictions ))
- 
- 
+  
+  
 print ("Method = Bidirectional LSTM")
 np.random.seed(0)
 X = np.vstack( (train_sequences,test_sequences) )
@@ -223,7 +229,7 @@ for train, test in kf:
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , predictions ))
- 
+  
 print ("Method = CNN-LSTM")
 np.random.seed(0)
 filter_length = 3
