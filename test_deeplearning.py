@@ -124,10 +124,10 @@ for train, test in kf:
     y_test = _get_entries(y, test)
     model.fit( X_train , y_train , nb_epoch=nb_epoch, batch_size=batch_size)
     results = model.predict_classes( X_test )
-    predictions = predictions + results
+    predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , predictions ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
  
  
 print ("Method = MLP with bag-of-words features")
@@ -154,10 +154,10 @@ for train, test in kf:
     y_test = _get_entries(y, test)
     model.fit( X_train , y_train , nb_epoch=nb_epoch, batch_size=batch_size)
     results = model.predict_classes( X_test )
-    predictions = predictions + results
+    predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , predictions ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
   
   
 print ("Method = CNN from the paper 'Convolutional Neural Networks for Sentence Classification'")
@@ -190,10 +190,10 @@ for train, test in kf:
     results = np.array(model.predict({'input': test_sequences}, batch_size=batch_size)['output'])
     if num_classes != 2: results = results.argmax(axis=-1)
     else: results = (results > 0.5).astype('int32')
-    predictions = predictions + results
+    predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , predictions ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
   
   
 print ("Method = Bidirectional LSTM")
@@ -225,10 +225,10 @@ for train, test in kf:
     results = np.array(model.predict({'input': test_sequences}, batch_size=batch_size)['output'])
     if num_classes != 2: results = results.argmax(axis=-1)
     else: results = (results > 0.5).astype('int32')
-    predictions = predictions + results
+    predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , predictions ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
   
 print ("Method = CNN-LSTM")
 np.random.seed(0)
@@ -256,8 +256,8 @@ for train, test in kf:
     else: model.compile(loss='categorical_crossentropy', optimizer='adam')  
     model.fit( train_sequences , train_labels , nb_epoch=nb_epoch, batch_size=batch_size)
     results = model.predict_classes( test_sequences )
-    predictions = predictions + results
+    predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , predictions ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
 
