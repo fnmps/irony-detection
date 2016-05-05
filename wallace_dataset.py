@@ -1,9 +1,12 @@
 import csv
 import re
 import sqlite3
-import numpy as np
 
 from nltk.metrics import edit_distance
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+import numpy as np
+
 
 class dataset():
     
@@ -128,19 +131,22 @@ class dataset():
         return [a_list[i] for i in indices]
     
     def comment_similarity(self, comment_id):
-        conn = sqlite3.connect('wallace_dataset.db')
+        conn = sqlite3.connect('ironate.db')
         c = conn.cursor()
         rows = c.execute("SELECT redditor, subreddit FROM irony_comment WHERE id=%s" % comment_id)
         row = rows.fetchone()
         author = row[0]
         subreddit = row[1]
         orig_comment = self.__grab_comments(conn, [comment_id])[0]
-        c= conn.cursor()
-                
-        comments = c.execute("SELECT comment_text FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s'" % (author, subreddit) )
+        conn = sqlite3.connect('wallace_dataset.db')
+        c = conn.cursor()    
+        comments = list(c.execute("SELECT distinct(comment_text) FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s'" % (author, subreddit) ))
+        vect = TfidfVectorizer(min_df=1)
+        tfidf = vect.fit_transform([orig_comment] + [c[0] for c in comments])
+        similarities = (tfidf * tfidf.T).A
         result = []
-        for comment in comments:
-            print(edit_distance(orig_comment, comment))
+        for simi in similarities:
+            result.append(simi[0])
             
         return result
         
