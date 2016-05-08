@@ -2,7 +2,6 @@ import csv
 import re
 import sqlite3
 
-from nltk.metrics import edit_distance
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import numpy as np
@@ -130,7 +129,15 @@ class dataset():
     def __get_entries(self, a_list, indices):
         return [a_list[i] for i in indices]
     
-    def comment_similarity(self, comment_id):
+    
+    def compute_comments_similarities(self, no_similarities):
+        comment_id_list = self.__get_labeled_thrice_comments()
+        similarities = []
+        for comment_id in comment_id_list:
+            print(comment_id)
+            similarities.append(self.__comment_similarity(comment_id, no_similarities))
+    
+    def __comment_similarity(self, comment_id, no_similarities):
         conn = sqlite3.connect('ironate.db')
         c = conn.cursor()
         rows = c.execute("SELECT redditor, subreddit FROM irony_comment WHERE id=%s" % comment_id)
@@ -140,7 +147,7 @@ class dataset():
         orig_comment = self.__grab_comments(conn, [comment_id])[0]
         conn = sqlite3.connect('wallace_dataset.db')
         c = conn.cursor()    
-        comments = list(c.execute("SELECT distinct(comment_text) FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s'" % (author, subreddit) ))
+        comments = list(c.execute("SELECT distinct(comment_text) FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s' LIMIT %d" % (author, subreddit, no_similarities) ))
         vect = TfidfVectorizer(min_df=1)
         tfidf = vect.fit_transform([orig_comment] + [c[0] for c in comments])
         similarities = (tfidf * tfidf.T).A
