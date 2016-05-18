@@ -17,34 +17,42 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import sklearn.metrics
 import theano.sandbox.cuda
 
+import bamman_dataset
 import fnmps_dataset
 import numpy as np
 import riloff_dataset
 import wallace_dataset
-
+import gc
 
 #===================================
 def _get_entries(a_list, indices):
     return [a_list[i] for i in indices]
 
 def get_data(dataset_name, affective_norms=False, author=False, subreddit=False,punctuation=False, emoticons=False):
+    embeddings = dict( )
+
     if dataset_name == 'wallace':
         comments, targets = wallace_dataset.dataset().get_data(affective_norms=affective_norms, punctuation=punctuation, emoticons=emoticons)
+        embeddings = Word2Vec.load_word2vec_format( "../GoogleNews-vectors-negative300.bin", binary=True )
     elif dataset_name == 'fnmps':
         comments, targets =  fnmps_dataset.dataset().get_data(author=author, subreddit=subreddit, affective_norms=affective_norms, punctuation=punctuation, emoticons=emoticons)
+        embeddings = Word2Vec.load_word2vec_format( "../GoogleNews-vectors-negative300.bin", binary=True )
     elif dataset_name == 'riloff':
         comments, targets =  riloff_dataset.dataset().get_data(affective_norms=affective_norms, punctuation=punctuation, emoticons=emoticons)
-    return zip(comments, targets)
+        embeddings = Word2Vec.load_word2vec_format( "../word2vec_twitter_model.bin", binary=True, unicode_errors='ignore' )
+    elif dataset_name == 'bamman':
+        comments, targets =  bamman_dataset.dataset().get_data(affective_norms=affective_norms, punctuation=punctuation, emoticons=emoticons)
+        embeddings = Word2Vec.load_word2vec_format( "../word2vec_twitter_model.bin", binary=True, unicode_errors='ignore' )
+    return zip(comments, targets), embeddings
 
 
 
-data = get_data('riloff', affective_norms=False, author=False, subreddit=False)
+data, embeddings = get_data('wallace', affective_norms=False, author=False, subreddit=False)
 #===============================================================
 
 print ("")
 print ("Reading pre-trained word embeddings...")
-embeddings = dict( )
-embeddings = Word2Vec.load_word2vec_format( "GoogleNews-vectors-negative300.bin" , binary=True ) 
+
 
 # size of the word embeddings
 embeddings_dim = 300
@@ -55,52 +63,42 @@ max_features = 30000
 # maximum length of a sentence
 max_sent_len = 50
 
-# percentage of the data used for model training
-percent = 0.75
-
 # number of classes
 num_classes = 2
-
+np.random.seed(seed=1234)
 
 batch_size = 64
 nb_epoch = 30
 nb_folds = 5
 
 random.shuffle( data )
-train_size = int(len(data) * percent)
-train_texts = [ txt.lower() for ( txt, label ) in data[0:train_size] ]
-test_texts = [ txt.lower() for ( txt, label ) in data[train_size:-1] ]
-train_labels = [ label for ( txt , label ) in data[0:train_size] ]
-test_labels = [ label for ( txt , label ) in data[train_size:-1] ]
-num_classes = len( set( train_labels + test_labels ) )
+texts = [ txt.lower() for ( txt, label ) in data ]
+labels = [ label for ( txt , label ) in data ]
+num_classes = len( set( labels ) )
 tokenizer = Tokenizer(nb_words=max_features, filters=keras.preprocessing.text.base_filter(), lower=True, split=" ")
-tokenizer.fit_on_texts(train_texts)
-train_sequences = sequence.pad_sequences( tokenizer.texts_to_sequences( train_texts ) , maxlen=max_sent_len )
-test_sequences = sequence.pad_sequences( tokenizer.texts_to_sequences( test_texts ) , maxlen=max_sent_len )
-train_matrix = tokenizer.texts_to_matrix( train_texts, mode='tfidf' )
-test_matrix = tokenizer.texts_to_matrix( test_texts, mode='tfidf' )
+tokenizer.fit_on_texts(texts)
+sequences = sequence.pad_sequences( tokenizer.texts_to_sequences( texts ) , maxlen=max_sent_len )
+
 embedding_weights = np.zeros( ( max_features , embeddings_dim ) )
 for word,index in tokenizer.word_index.items():
     if index < max_features:
         try: embedding_weights[index,:] = embeddings[word]
         except: embedding_weights[index,:] = np.random.rand( 1 , embeddings_dim )
 le = preprocessing.LabelEncoder( )
-le.fit( train_labels + test_labels )
-train_labels = le.transform( train_labels )
-test_labels = le.transform( test_labels )
+le.fit( labels )
+labels = le.transform( labels )
 print ("Classes that are considered in the problem : " + repr( le.classes_ ))
 
 
 theano.sandbox.cuda.use("gpu0")
 print ("Method = Stack of two LSTMs")
-np.random.seed(0)
-
+ 
 # vectorizer = TfidfVectorizer(ngram_range=(1,2), binary=True, stop_words="english", max_features=max_features)
 # X = vectorizer.fit_transform([x[0] for x in data ])
 # y = [x[1] for x in data ]
-
-X = np.vstack( (train_sequences,test_sequences) )
-y = np.hstack( (train_labels,  test_labels) )
+ 
+X = sequences
+y = labels
 predictions = []
 result_labels = []
 kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
@@ -128,43 +126,12 @@ for train, test in kf:
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
- 
- 
-print ("Method = MLP with bag-of-words features")
-np.random.seed(0)
-X = np.vstack( (train_matrix, test_matrix) )
-y = np.hstack( (train_labels,  test_labels) )
-predictions = []
-result_labels = []
-kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
-fold_no = 0
-for train, test in kf:
-    fold_no += 1
-    print("kfold: " + str(fold_no) + "/5")
-    model = Sequential()
-    model.add(Dense(embeddings_dim, input_dim=train_matrix.shape[1], init='uniform', activation='relu'))
-    model.add(Dropout(0.25))
-    model.add(Dense(embeddings_dim, activation='relu'))
-    model.add(Dropout(0.25))
-    model.add(Dense(1, activation='sigmoid'))
-    if num_classes == 2: model.compile(loss='binary_crossentropy', optimizer='adam', class_mode='binary')
-    else: model.compile(loss='categorical_crossentropy', optimizer='adam')
-    X_train, X_test = X[train], X[test]
-    y_train = _get_entries(y, train)
-    y_test = _get_entries(y, test)
-    model.fit( X_train , y_train , nb_epoch=nb_epoch, batch_size=batch_size)
-    results = model.predict_classes( X_test )
-    predictions = predictions + results.tolist()
-    result_labels = result_labels + y_test
-print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
-print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
   
   
 print ("Method = CNN from the paper 'Convolutional Neural Networks for Sentence Classification'")
-np.random.seed(0)
 nb_filter = embeddings_dim
-X = np.vstack( (train_sequences,test_sequences) )
-y = np.hstack( (train_labels,  test_labels) )
+X = sequences
+y = labels
 predictions = []
 result_labels = []
 kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
@@ -186,20 +153,22 @@ for train, test in kf:
     model.add_output(name='output', input='sigmoid')
     if num_classes == 2: model.compile(loss={'output': 'binary_crossentropy'}, optimizer='adam')
     else: model.compile(loss={'output': 'categorical_crossentropy'}, optimizer='adam') 
-    model.fit({'input': train_sequences, 'output': train_labels}, batch_size=batch_size, nb_epoch=nb_epoch)
-    results = np.array(model.predict({'input': test_sequences}, batch_size=batch_size)['output'])
+    X_train, X_test = X[train], X[test]
+    y_train = _get_entries(y, train)
+    y_test = _get_entries(y, test)
+    model.fit({'input': X_train, 'output': y_train}, batch_size=batch_size, nb_epoch=nb_epoch)
+    results = np.array(model.predict({'input': X_test}, batch_size=batch_size)['output'])
     if num_classes != 2: results = results.argmax(axis=-1)
     else: results = (results > 0.5).astype('int32')
     predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
-  
-  
+   
+   
 print ("Method = Bidirectional LSTM")
-np.random.seed(0)
-X = np.vstack( (train_sequences,test_sequences) )
-y = np.hstack( (train_labels,  test_labels) )
+X = sequences
+y = labels
 predictions = []
 result_labels = []
 kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
@@ -221,22 +190,24 @@ for train, test in kf:
     model.add_output(name='output', input='sigmoid')
     if num_classes == 2: model.compile(loss={'output': 'binary_crossentropy'}, optimizer='adam')
     else: model.compile(loss={'output': 'categorical_crossentropy'}, optimizer='adam')
-    model.fit({'input': train_sequences, 'output': train_labels}, batch_size=batch_size, nb_epoch=nb_epoch)
-    results = np.array(model.predict({'input': test_sequences}, batch_size=batch_size)['output'])
+    X_train, X_test = X[train], X[test]
+    y_train = _get_entries(y, train)
+    y_test = _get_entries(y, test)
+    model.fit({'input': X_train, 'output': y_train}, batch_size=batch_size, nb_epoch=nb_epoch)
+    results = np.array(model.predict({'input': X_test}, batch_size=batch_size)['output'])
     if num_classes != 2: results = results.argmax(axis=-1)
     else: results = (results > 0.5).astype('int32')
     predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
-  
+   
 print ("Method = CNN-LSTM")
-np.random.seed(0)
 filter_length = 3
 nb_filter = embeddings_dim
 pool_length = 2
-X = np.vstack( (train_sequences,test_sequences) )
-y = np.hstack( (train_labels,  test_labels) )
+X = sequences
+y = labels
 predictions = []
 result_labels = []
 kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
@@ -253,11 +224,48 @@ for train, test in kf:
     model.add(Dense(1))
     model.add(Activation('sigmoid'))
     if num_classes == 2: model.compile(loss='binary_crossentropy', optimizer='adam', class_mode='binary')
-    else: model.compile(loss='categorical_crossentropy', optimizer='adam')  
-    model.fit( train_sequences , train_labels , nb_epoch=nb_epoch, batch_size=batch_size)
-    results = model.predict_classes( test_sequences )
+    else: model.compile(loss='categorical_crossentropy', optimizer='adam')
+    X_train, X_test = X[train], X[test]
+    y_train = _get_entries(y, train)
+    y_test = _get_entries(y, test)
+    model.fit( X_train , y_train , nb_epoch=nb_epoch, batch_size=batch_size)
+    results = model.predict_classes( X_test )
     predictions = predictions + results.tolist()
     result_labels = result_labels + y_test
 print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
 print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))
 
+sequences = None
+
+print ("Method = MLP with bag-of-words features")
+matrix = tokenizer.texts_to_matrix( texts, mode='tfidf' )
+embeddings = None
+texts = None
+
+X = matrix
+y = labels
+predictions = []
+result_labels = []
+kf = KFold(len(y), n_folds=nb_folds, shuffle=True)
+fold_no = 0
+for train, test in kf:
+    fold_no += 1
+    print("kfold: " + str(fold_no) + "/5")
+    X_train, X_test = X[train], X[test]
+    y_train = _get_entries(y, train)
+    y_test = _get_entries(y, test)
+    model = Sequential()
+    model.add(Dense(embeddings_dim, input_dim=matrix.shape[1], init='uniform', activation='relu'))
+    model.add(Dropout(0.25))
+    model.add(Dense(embeddings_dim, activation='relu'))
+    model.add(Dropout(0.25))
+    model.add(Dense(1, activation='sigmoid'))
+    if num_classes == 2: model.compile(loss='binary_crossentropy', optimizer='adam', class_mode='binary')
+    else: model.compile(loss='categorical_crossentropy', optimizer='adam')
+    
+    model.fit( X_train , y_train , nb_epoch=nb_epoch, batch_size=batch_size)
+    results = model.predict_classes( X_test )
+    predictions = predictions + results.tolist()
+    result_labels = result_labels + y_test
+print ("Accuracy = " + repr( sklearn.metrics.accuracy_score( result_labels , predictions )  ))
+print (sklearn.metrics.classification_report( result_labels , np.asarray(predictions) ))

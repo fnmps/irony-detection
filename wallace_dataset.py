@@ -131,10 +131,10 @@ class dataset():
     
     
     def compute_comments_similarities(self, no_similarities):
-        comment_id_list = self.__get_labeled_thrice_comments()
+        conn = sqlite3.connect('ironate.db')
+        comment_id_list = self.__get_labeled_thrice_comments(conn)
         similarities = []
         for comment_id in comment_id_list:
-            print(comment_id)
             similarities.append(self.__comment_similarity(comment_id, no_similarities))
     
     def __comment_similarity(self, comment_id, no_similarities):
@@ -148,6 +148,13 @@ class dataset():
         conn = sqlite3.connect('wallace_dataset.db')
         c = conn.cursor()    
         comments = list(c.execute("SELECT distinct(comment_text) FROM irony_pastusercomment WHERE redditor='%s' AND subreddit='%s' LIMIT %d" % (author, subreddit, no_similarities) ))
+        
+        if len(comments) < no_similarities:
+            extra_comments = list(c.execute("SELECT distinct(comment_text) FROM irony_pastusercomment WHERE redditor='%s' AND subreddit!='%s' LIMIT %d" % (author, subreddit, no_similarities-len(comments)) ))
+            comments = comments + extra_comments
+        
+        if len(comments) < no_similarities:
+            print(str(comment_id) + " has no comments")
         vect = TfidfVectorizer(min_df=1)
         tfidf = vect.fit_transform([orig_comment] + [c[0] for c in comments])
         similarities = (tfidf * tfidf.T).A

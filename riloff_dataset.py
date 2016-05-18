@@ -81,7 +81,6 @@ class dataset():
         tweet_id_list = self.__get_tweet_ids()
         similarities = []
         for tweet_id in tweet_id_list:
-            print(tweet_id)
             similarities.append(self.__comment_similarity(tweet_id, no_similarities))
     
     def __comment_similarity(self, tweet_id, no_similarities):
@@ -93,8 +92,20 @@ class dataset():
         vect = TfidfVectorizer(min_df=1)
         tweets = list(tweets.fetchall())
         if len(tweets) == 0:
-            print("No tweets!!")
-            return []
+            hashtags = re.findall(r'\#\w+', orig_tweet)
+            if len(hashtags) != 0:
+                query = ""
+                for hashtag in hashtags:
+                    if query == "":
+                        query = "SELECT tweet_text FROM past_author_tweets WHERE tweet_text LIKE '\%" + hashtag +"\%'"
+                    else:
+                        query += " OR tweet_text LIKE '\%" + hashtag +"\%'"
+                query += " LIMIT " + str(no_similarities)
+                tweets = c.execute(query)
+            else:
+                print(str(tweet_id) + " has no tweets!!")
+                
+                return []
         tfidf = vect.fit_transform([orig_tweet] + [t[0] for t in tweets])
         similarities = (tfidf * tfidf.T).A
         result = []
